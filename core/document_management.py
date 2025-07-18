@@ -1,184 +1,103 @@
 import chromadb
 import torch
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 import os
 import logging
 from typing import List, Dict, Any, Union
+import tempfile
+import shutil
+import uuid
 
-# Import the configured logger from your utils module
+from langchain_core.vectorstores import VectorStore
+
+# Import singleton managers
+from .embedding_manager import get_embeddings_instance
+# Use the new factory functions directly
+from vector.chromavector_manager import get_vectorstore, get_all_documents_metadata, delete_document, update_document_metadata 
 from utils.logger_config import logger
+from core.semantic_document_processor import SemanticDocumentProcessor
 
-# --- Constants (should match your main app.py and core/chatbot.py) ---
-CHROMA_PERSIST_DIR = "./chroma_db_docs"
+# --- Constants ---
+# No longer needed here, defined in the manager
+# CHROMA_PERSIST_DIR = "./chroma_db_docs"
 
 # Ensure ChromaDB telemetry is disabled if it's not handled globally in main.py
 # If main.py already sets this in os.environ, it's redundant here but harmless.
-os.environ['CHROMA_ANALYTICS'] = 'False'
+# os.environ['CHROMA_ANALYTICS'] = 'False'
 
 class DocumentManager:
     """
-    Manages documents stored in the ChromaDB vector store.
-    Assumes the vectorstore is already populated and persistent.
-    It connects to the existing ChromaDB collection to retrieve, delete, and update metadata.
+    Manages documents stored in the vector store.
+    It now gets a singleton instance of the vector store from a centralized manager.
     """
 
     def __init__(self):
-        self.embeddings = None
-        self.vectorstore = None
-        self._initialize_db()
-        logger.info("DocumentManager instance initialized.")
+        # The vectorstore is now retrieved from the factory when needed.
+        self.document_processor = SemanticDocumentProcessor()
+        logger.info("DocumentManager instance initialized (stateless).")
 
-    def _initialize_db(self):
-        """Initializes the ChromaDB connection."""
+    def add_document(self, filename: str, file_contents: Any, metadata: Dict[str, Any]) -> bool:
+        """
+        Processes and adds a document to the configured vector store.
+        It saves the uploaded file temporarily to handle file-path-based loaders.
+        """
+        # Generate a unique document ID and add essential metadata
+        document_id = str(uuid.uuid4())
+        metadata['document_id'] = document_id
+        metadata['filename'] = filename
+        metadata['source'] = filename  # Often, the source is the filename
+
+        # Create a temporary file to store the uploaded content
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
+            shutil.copyfileobj(file_contents, tmp)
+            tmp_path = tmp.name
+        
         try:
-            # Ensure the persistence directory exists
-            if not os.path.exists(CHROMA_PERSIST_DIR):
-                logger.warning(f"ChromaDB persistence directory '{CHROMA_PERSIST_DIR}' does not exist. No documents found to manage.")
-                self.vectorstore = None
-                return
-
-            # Initialize embeddings (must be the same model as used for ingestion)
-            # Use 'cpu' for management tasks unless GPU is specifically required and available
-            device = "cuda" if torch.cuda.is_available() else "cpu" # Assuming torch is imported from chatbot
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={'device': device}
-            )
-            logger.info(f"DocumentManager: Embeddings model loaded on device: {device}.")
-
-            # Connect to the persistent client
-            client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-            collection_name = "documents"
-
-            try:
-                # Attempt to get the existing collection.
-                # If it doesn't exist, this will raise an exception.
-                collection = client.get_collection(collection_name)
-                logger.info(f"DocumentManager: Found existing ChromaDB collection '{collection_name}'.")
-            except Exception as e:
-                # Catch the error if collection is not found.
-                logger.warning(f"DocumentManager: Collection '{collection_name}' not found in '{CHROMA_PERSIST_DIR}'. Error: {e}")
-                self.vectorstore = None
-                return
-
-            self.vectorstore = Chroma(
-                client=client,
-                collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=CHROMA_PERSIST_DIR # Explicitly set persist_directory
-            )
-            count = self.vectorstore._collection.count()
-            logger.info(f"DocumentManager: Connected to ChromaDB at {CHROMA_PERSIST_DIR}. Current document chunks in DB: {count}")
-
+            logger.info(f"Processing and adding document: {filename} from temp path: {tmp_path}")
+            vectorstore = get_vectorstore()
+            
+            # Determine file type and load content from the temporary file path
+            file_type = filename.split('.')[-1].lower()
+            texts = self.document_processor.load_document(tmp_path, file_type)
+            
+            # Chunk the documents
+            chunks = self.document_processor.chunk_documents(texts, metadata)
+            
+            vectorstore.add_documents(chunks)
+            logger.info(f"Successfully added document {filename} to the vector store.")
+            return True
         except Exception as e:
-            logger.error(f"DocumentManager: Fatal error initializing ChromaDB connection: {e}", exc_info=True)
-            self.vectorstore = None  # Ensure vectorstore is None on failure
+            logger.error(f"Failed to add document {filename}: {e}", exc_info=True)
+            return False
+        finally:
+            # Ensure the temporary file is deleted after processing
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+                logger.info(f"Removed temporary file: {tmp_path}")
 
     def get_all_documents_metadata(self) -> List[Dict[str, Any]]:
         """
-        Retrieves metadata for all unique documents (based on document_id).
-        Returns a list of dictionaries, each representing a document with its chunk count.
+        Retrieves metadata for all unique documents using the factory.
+        The consolidation logic is now handled by the vector store managers.
         """
-        if not self.vectorstore:
-            logger.warning("DocumentManager: Vectorstore not initialized. Cannot retrieve document metadata.")
-            return []
-
         try:
-            logger.info("DocumentManager: Fetching all document metadata from ChromaDB.")
-            # Fetch all items from the collection
-            all_chunks = self.vectorstore._collection.get(
-                ids=None,  # Get all IDs
-                include=['metadatas']  # Only need metadata
-            )
-
-            unique_documents_map = {}  # To store one entry per document_id
-            for metadata in all_chunks['metadatas']:
-                doc_id = metadata.get("document_id")
-                if doc_id:
-                    if doc_id not in unique_documents_map:
-                        # Store the first chunk's metadata as representative
-                        unique_documents_map[doc_id] = {
-                            "document_id": doc_id,
-                            "filename": metadata.get("filename", "N/A"),
-                            "category": metadata.get("category", "N/A"),
-                            "description": metadata.get("description", "N/A"),
-                            "status": metadata.get("status", "N/A"),
-                            "access": metadata.get("access", "N/A"),
-                            "total_chunks": 0  # Initialize chunk count
-                        }
-                    unique_documents_map[doc_id]["total_chunks"] += 1
-
-            doc_list = list(unique_documents_map.values())
-            logger.info(f"DocumentManager: Retrieved metadata for {len(doc_list)} unique documents.")
-            return doc_list
+            logger.info("Fetching all document metadata via factory.")
+            # The factory now returns clean, consolidated data directly.
+            return get_all_documents_metadata()
         except Exception as e:
-            logger.error(f"DocumentManager: Error fetching documents from ChromaDB: {e}", exc_info=True)
+            logger.error(f"Error fetching documents from vector store: {e}", exc_info=True)
             return []
 
     def delete_document(self, document_id: str) -> bool:
-        """
-        Deletes all chunks associated with a given document_id.
-        """
-        if not self.vectorstore:
-            logger.warning("DocumentManager: Vectorstore not initialized. Cannot delete document.")
-            return False
-        try:
-            logger.info(f"DocumentManager: Attempting to delete document with ID: {document_id}")
-            # ChromaDB's delete works with a where clause on metadata
-            self.vectorstore._collection.delete(
-                where={"document_id": document_id}
-            )
-            self.vectorstore.persist()  # Ensure changes are written to disk
-            logger.info(f"DocumentManager: Successfully deleted document_id: {document_id}")
-            return True
-        except Exception as e:
-            logger.error(f"DocumentManager: Error deleting document {document_id}: {e}", exc_info=True)
-            return False
+        """Deletes all chunks associated with a given document_id via the factory."""
+        logger.info(f"Attempting to delete document {document_id} using vector store factory.")
+        return delete_document(document_id)
 
-    def update_document_metadata(self, document_id: str, updates: Dict[str, str]) -> bool:
-        """
-        Updates multiple metadata fields for all chunks of a given document_id.
-        'updates' is a dictionary where keys are field names (e.g., 'access', 'status')
-        and values are the new values for those fields.
-        """
-        if not self.vectorstore:
-            logger.warning("DocumentManager: Vectorstore not initialized. Cannot update document metadata.")
-            return False
-        if not updates:
-            logger.info("DocumentManager: No metadata updates provided.")
-            return True  # No changes requested, so consider it a success
-
-        try:
-            logger.info(f"DocumentManager: Attempting to update metadata for document ID: {document_id} with {updates}")
-            chunks_to_update = self.vectorstore._collection.get(
-                where={"document_id": document_id},
-                include=[]  # Only need IDs for update
-            )
-            ids_to_update = chunks_to_update.get('ids', [])
-
-            if not ids_to_update:
-                logger.warning(f"DocumentManager: No chunks found for document_id: {document_id}. Cannot update metadata.")
-                return False
-
-            # ChromaDB's update method expects a list of IDs and corresponding lists of new metadatas/documents/embeddings.
-            # When updating metadata, you provide a list of dictionaries, where each dictionary specifies the metadata
-            # to be merged with the existing metadata for the corresponding ID.
-            # Here, we want to apply the same `updates` dictionary to all chunks of the document.
-            metadatas_for_update = [updates for _ in ids_to_update]
-
-            self.vectorstore._collection.update(
-                ids=ids_to_update,
-                metadatas=metadatas_for_update
-            )
-
-            updated_fields_str = ", ".join([f"'{k}' to '{v}'" for k, v in updates.items()])
-            logger.info(f"DocumentManager: Successfully updated metadata for document_id {document_id}: {updated_fields_str}")
-            self.vectorstore.persist()
-            return True
-        except Exception as e:
-            logger.error(f"DocumentManager: Error updating document {document_id} metadata: {e}", exc_info=True)
-            return False
+    def update_document_metadata(self, document_id: str, updates: Dict[str, Any]) -> bool:
+        """Updates metadata for a document via the factory."""
+        logger.info(f"Attempting to update metadata for document {document_id} using vector store factory.")
+        return update_document_metadata(document_id, updates)
 
     # The original update_document_metadata_field and update_document_access methods
     # are now redundant if update_document_metadata handles multiple fields.

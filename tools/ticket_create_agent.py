@@ -7,6 +7,9 @@ from langchain_core.tools import Tool
 from langchain.prompts import PromptTemplate
 from langchain_core.messages import AIMessage, HumanMessage # Required for chat history type hinting
 
+# Import the new prompt manager
+from core.prompt_manager import PromptManager
+
 # Initialize logger for this module
 logger = logging.getLogger("aviator_chatbot")
 
@@ -30,44 +33,20 @@ class TicketCreationTool:
         self.chat_history_provider = chat_history_provider
         # Define the fields required for a ticket. These are case-sensitive as used internally.
         self.required_fields = ["department", "severity", "client_name", "impacted_time"]
+        
+        # Define allowed values for specific fields to enable robust validation.
+        # Values are lowercase for case-insensitive comparison.
+        self.allowed_values = {
+            "department": ["it", "hr", "ps", "network support", "payroll", "general support"],
+            "severity": ["high", "medium", "low", "critical", "urgent"]
+        }
+
         # This dictionary holds the details gathered during the multi-turn interaction
         self.current_ticket_details: Dict[str, Any] = {}
+        
+        # Get the prompt from the centralized manager
+        self.extraction_prompt = PromptManager.get_ticket_extraction_prompt()
         logger.info("TicketCreationTool initialized.")
-
-        # Define a more specific prompt for the LLM to extract ticket details
-        # This prompt is critical for the LLM's performance in extraction.
-        self.extraction_prompt = PromptTemplate.from_template("""
-        You are an AI assistant designed to extract information for creating a support ticket.
-        You need to identify the following details from the user's conversation history or their current input.
-        If a detail is not found or unclear, indicate 'N/A'.
-        Be smart about inferring. For example, if the user mentions 'payroll issue', the department is likely HR.
-        If they mention 'system down' or 'unable to log in', severity is likely High.
-        Try to be as precise as possible, but use 'N/A' if truly no information can be inferred.
-
-        Required fields:
-        - department (Mandatory value and Allowed values: IT, HR, PS, Network Support, Payroll, General Support)
-        - severity (Mandatory value and Allowed values: High, Medium, Low, Critical, Urgent)
-        - client_name (Mandatory value: Name of the client or user impacted, e.g., 'John Doe', 'Acme Corp')
-        - impacted_time (Mandatory value: Time when the issue occurred, e.g., 'yesterday', 'today 2 PM', 'last Monday', 'now', 'this morning')
-        Rule:
-         - If user tell like cancel creating ticket or ignore or stop during followup these above inputs then you have to cancel booking and return some response like Accepted your request and canceling booking ticket. You can ask for further any other help.
-         - Any 'Required fields' should not be missed, you have to ask user one field value at a time.
-         - Don't use previously already created ticket values. 
-                    
-        Conversation history (most recent last, up to 5 turns):
-        {chat_history_str}
-
-        Current User Input: {user_input}
-
-        Extract the following as a JSON object. Ensure the JSON is perfectly valid.
-        {{
-            "department": "extracted value or N/A",
-            "severity": "extracted value or N/A",
-            "client_name": "extracted value or N/A",
-            "impacted_time": "extracted value or N/A"
-        }}
-        """)
-
 
     def _get_chat_history_str(self, turn_limit: int = 5) -> str:
         """
@@ -83,9 +62,14 @@ class TicketCreationTool:
         formatted_history = []
         # Get last 'turn_limit' exchanges (each exchange is a human message + an AI message)
         # Ensure we only process actual HumanMessage and AIMessage instances
-        relevant_history = [
+        # First, filter the history to get only the message types we care about.
+        filtered_history = [
             msg for msg in history if isinstance(msg, (HumanMessage, AIMessage))
-        ][-turn_limit*2:] if len(history) > turn_limit*2 else history
+        ]
+
+        # Now, get the last 'turn_limit' exchanges. Python's slicing handles cases
+        # where the list is shorter than the slice size by simply returning the entire list.
+        relevant_history = filtered_history[-turn_limit * 2:]
 
         for msg in relevant_history:
             if isinstance(msg, HumanMessage):
@@ -116,6 +100,11 @@ class TicketCreationTool:
             llm_output_content = llm_response.content
             logger.debug(f"Raw LLM extraction output: {llm_output_content}")
 
+            # Ensure the LLM output is a string before processing
+            if not isinstance(llm_output_content, str):
+                logger.error(f"LLM extraction returned a non-string value: {llm_output_content}")
+                return {}
+
             # The LLM might include markdown (e.g., ```json\n...\n```), so strip it.
             json_str = llm_output_content.strip()
             if json_str.startswith("```json"):
@@ -136,14 +125,33 @@ class TicketCreationTool:
 
     def _get_missing_fields(self) -> List[str]:
         """
-        Returns a list of required fields that are still missing or marked as 'N/A'
-        in the current_ticket_details.
+        Returns a list of required fields that are still missing or invalid.
+        This now uses a robust validation logic based on allowed values.
         """
-        missing = [
-            field for field in self.required_fields
-            if not self.current_ticket_details.get(field) or self.current_ticket_details.get(field).strip().lower() == "n/a"
-        ]
-        logger.debug(f"Missing fields: {missing}")
+        missing = []
+        for field in self.required_fields:
+            value = self.current_ticket_details.get(field)
+            is_missing = False
+
+            # 1. Check if the value is fundamentally missing or an invalid placeholder.
+            if not value or str(value).strip().lower() in ["n/a", "na", "unknown", "", "missing"]:
+                is_missing = True
+            else:
+                clean_value = str(value).strip().lower()
+                # 2. If the field has a predefined list of allowed values, validate against it.
+                if field in self.allowed_values:
+                    if clean_value not in self.allowed_values[field]:
+                        logger.warning(f"Validation failed for field '{field}'. Value '{value}' not in allowed list: {self.allowed_values[field]}")
+                        is_missing = True
+                # 3. For free-text fields, perform a basic sanity check.
+                elif isinstance(value, str) and len(value.strip()) < 2:
+                    logger.warning(f"Validation failed for free-text field '{field}'. Value '{value}' is too short.")
+                    is_missing = True
+            
+            if is_missing:
+                missing.append(field)
+        
+        logger.debug(f"Checked for missing/invalid fields. Found: {missing}")
         return missing
 
     def _ask_for_missing_details(self, missing_fields: List[str]) -> str:
@@ -156,13 +164,17 @@ class TicketCreationTool:
             A human-readable string asking for the missing information.
         """
         field_map = {
-            "department": "department (e.g., IT, HR, or PS)",
-            "severity": "issue severity (e.g., High, Medium, or Low)",
-            "client_name": "impacted client name",
-            "impacted_time": "impacted time (e.g., 'yesterday', 'today 2 PM', 'last Monday')"
+            "department": "department: e.g., IT, HR, or PS",
+            "severity": "issue severity: e.g., High, Medium, or Low",
+            "client_name": "impacted client name: e.g., Opentext",
+            "impacted_time": "impacted time: e.g., 'yesterday', 'today 2 PM', 'last Monday'"
         }
-        prompts = [field_map.get(field, field) for field in missing_fields] # Use .get with fallback
-        response_message = f"To create the ticket, I need a few more details: **{', '.join(prompts)}**. Please provide them."
+        
+        # Build the formatted string with each missing item on a new line
+        prompts = [field_map.get(field, field) for field in missing_fields]
+        # Use double newlines to ensure markdown renders separate paragraphs.
+        response_message = "I need a few more details. Please provide them.\n\n" + "\n\n".join(prompts)
+        
         logger.info(f"Asking user for missing ticket details: {missing_fields}")
         return response_message
 
@@ -206,29 +218,40 @@ class TicketCreationTool:
         """
         logger.info(f"TicketCreationTool invoked with user input: '{user_input}'")
 
-        # Always try to extract details from the current input and history
-        extracted_from_llm = self._extract_details_with_llm(user_input)
+        extraction_result = self._extract_details_with_llm(user_input)
 
-        # Update `current_ticket_details` with newly extracted information.
-        # This allows multi-turn collection and overwrites 'N/A' or old values.
+        # Validate the structure of the LLM's response.
+        if not isinstance(extraction_result, dict) or "mentioned_fields" not in extraction_result or "extracted_data" not in extraction_result:
+            logger.warning("LLM extraction result was malformed or empty. Re-prompting for missing info.")
+            return self._ask_for_missing_details(self._get_missing_fields())
+        
+        mentioned_fields = extraction_result.get("mentioned_fields", [])
+        extracted_data = extraction_result.get("extracted_data", {})
+
+        logger.info(f"LLM identified explicitly mentioned fields: {mentioned_fields}")
+
+        # Intelligent Merge: Only update details for fields the LLM confirmed were in the LAST user message.
+        for field_name in mentioned_fields:
+            if field_name in self.required_fields:
+                new_value = extracted_data.get(field_name)
+                # Only update if the new value is a valid, non-empty string.
+                if isinstance(new_value, str) and new_value.strip().lower() not in ["", "n/a"]:
+                    self.current_ticket_details[field_name] = new_value
+                    logger.info(f"State updated for '{field_name}' with new value: '{new_value}'")
+        
+        # Initialize any required fields that have not been collected yet.
         for field in self.required_fields:
-            extracted_value = extracted_from_llm.get(field)
-            if extracted_value and extracted_value.strip().lower() != "n/a":
-                self.current_ticket_details[field] = extracted_value
-            elif field not in self.current_ticket_details:
-                # Initialize any unextracted required fields as 'N/A' to track them
-                self.current_ticket_details[field] = "N/A"
+            if field not in self.current_ticket_details:
+                self.current_ticket_details[field] = 'N/A'
 
-        logger.debug(f"Current collected ticket details: {self.current_ticket_details}")
+        logger.debug(f"Current collected ticket details after merge: {self.current_ticket_details}")
 
-        # Check if all required fields are collected
+        # Check if all required fields are collected and valid.
         missing_fields = self._get_missing_fields()
         if not missing_fields:
-            # All details collected, proceed to simulate ticket creation
             logger.info("All required ticket details collected. Simulating ticket creation.")
             return self._simulate_ticket_creation()
         else:
-            # Still missing details, ask the user for them
             logger.info(f"Ticket details incomplete. Asking for: {missing_fields}")
             return self._ask_for_missing_details(missing_fields)
 

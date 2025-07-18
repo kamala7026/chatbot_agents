@@ -1,0 +1,66 @@
+/* Unselected (secondary) feedback icon */
+div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+    background: transparent;
+    border: none;
+}
+div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+    transform: scale(1.25);
+    transition: transform 0.1s ease-in-out;
+}
+div[data-testid="stHorizontalBlock"] button[kind="secondary"]:focus,
+div[data-testid="stHorizontalBlock"] button[kind="secondary"]:active {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Selected (primary) feedback icon */
+div[data-testid="stHorizontalBlock"] button[kind="primary"] {
+    background-color: #F0F2F6; /* Light grey background */
+    border-radius: 50%;      /* Make it a circle */
+    border: none;
+    color: inherit;          /* Keep original emoji color */
+}
+div[data-testid="stHorizontalBlock"] button[kind="primary"]:hover {
+    background-color: #E0E2E6;
+}
+div[data-testid="stHorizontalBlock"] button[kind="primary"]:focus,
+div[data-testid="stHorizontalBlock"] button[kind="primary"]:active {
+    outline: none !important;
+    box-shadow: none !important;
+    background-color: #E0E2E6; /* Keep darker color on click */
+}
+
+/* --- Loading Dots Animation --- */
+.loading-dots {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    height: 40px;
+}
+
+.loading-dots .dot {
+    height: 8px;
+    width: 8px;
+    background-color: #888;
+    border-radius: 50%;
+    display: inline-block;
+    margin: 0 4px;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots .dot:nth-of-type(1) {
+    animation-delay: -0.32s;
+}
+
+.loading-dots .dot:nth-of-type(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+    0%, 80%, 100% {
+        transform: scale(0);
+    }
+    40% {
+        transform: scale(1.0);
+    }
+} 

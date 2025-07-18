@@ -11,6 +11,7 @@ logger = logging.getLogger("aviator_chatbot")
 def render_sidebar(chatbot, doc_manager):
     """Renders the Streamlit sidebar for configuration."""
     with st.sidebar:
+        st.error("If you can see this, the UI files are being updated correctly.")
         st.header("Configuration")
 
         google_api_key = st.text_input("Google API Key", type="password")
@@ -86,26 +87,6 @@ def render_sidebar(chatbot, doc_manager):
             st.success("✅ Chatbot Ready!")
             st.info(f"👤 Current user: **{st.session_state.current_user_type}**")
 
-            # Display Vector Database connection status and stats
-            if chatbot.vectorstore:
-                st.success("🗃️ Vector Database: Connected")
-                st.subheader("Database Stats")
-                try:
-                    # Access collection count through the chatbot's vectorstore
-                    count = chatbot.vectorstore._collection.count()
-                    st.metric("Total Document Chunks", count)
-                    if count > 0:
-                        st.success("📚 Documents ready for queries!")
-                    else:
-                        st.info("📝 Upload documents to get started!")
-                    logger.info(f"Sidebar: Vector store connected with {count} chunks.")
-                except Exception as e:
-                    st.warning(f"Stats unavailable: {str(e)}")
-                    logger.error(f"Error getting database stats in sidebar: {e}")
-            else:
-               st.error("🗃️ Vector Database: Not Connected")
-               st.error("Please re-initialize the chatbot!")
-               logger.warning("Sidebar: Vector store not connected.")
         else:
             st.info("🤖 Chatbot not initialized")
             st.info("Enter your Google API key and click 'Initialize Chatbot'")

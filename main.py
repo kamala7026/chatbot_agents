@@ -20,7 +20,7 @@ setup_logging()
 st.set_page_config(
     page_title="Aviator Chatbot",
     page_icon="✈️",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -56,18 +56,21 @@ def main():
 
     # Render sidebar UI
     render_sidebar(st.session_state.chatbot, st.session_state.doc_manager)
-    st.markdown('<hr style="border: 0.5px solid #eee; margin: 10px 0;">', unsafe_allow_html=True)
+    
     # Render main content tabs
-    #tab1, tab2, tab3 = st.tabs(["💬 Chat", "📄 Document Upload", "📋 Document Management"])
-    render_chat_ui(st.session_state.chatbot)
-    #with tab1:
-        #render_document_management_ui(st.session_state.chatbot, st.session_state.doc_manager)
-       # render_chat_ui(st.session_state.chatbot)
-    #with tab2:
-    render_document_upload_ui(st.session_state.chatbot, st.session_state.doc_manager)
-   # with tab3:
-      #  render_document_management_ui(st.session_state.chatbot, st.session_state.doc_manager)
-
+    st.markdown('<hr style="border: 0.5px solid #eee; margin: 10px 0;">', unsafe_allow_html=True)
+    
+    tab1, tab2, tab3 = st.tabs(["💬 Chat", "📄 Document Upload", "📋 Document Management"])
+    
+    with tab1:
+        render_chat_ui(st.session_state.chatbot)
+    
+    with tab2:
+        render_document_upload_ui(st.session_state.chatbot, st.session_state.doc_manager)
+    
+    # with tab3:
+    #     render_document_management_ui(st.session_state.chatbot, st.session_state.doc_manager)
+    
     logger.debug("Main application loop completed.")
 
 if __name__ == "__main__":

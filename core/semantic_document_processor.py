@@ -3,45 +3,42 @@ import docx
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# LangChain components for semantic chunking
+from langchain_experimental.text_splitter import SemanticChunker
 from langchain.schema import Document
+
+# Import the shared embedding model instance
+from .embedding_manager import get_embeddings_instance
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
 
 
-class DocumentProcessor:
-    """Handle document loading and processing."""
+class SemanticDocumentProcessor:
+    """
+    Handle document loading and processing with semantic chunking.
+    This processor uses an embedding model to split text based on semantic meaning,
+    which can produce more coherent and contextually relevant chunks.
+    """
 
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
-        # Updated separators for RecursiveCharacterTextSplitter for better chunking
-        # It prioritizes larger, more meaningful breaks like multiple newlines
-        # and then progressively smaller ones. Markdown-like headings are included
-        # in case your extracted text contains them.
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            separators=[
-                "\n\n\n",  # Triple newline for major section breaks
-                "\n\n",  # Double newline for paragraph breaks
-                "\n",  # Single newline for line breaks
-                "---",  # Common horizontal rule
-                "***",  # Common horizontal rule
-                "## ",  # Markdown H2 (if present in plain text after extraction)
-                "### ",  # Markdown H3
-                "#### ",  # Markdown H4
-                "##### ",  # Markdown H5
-                "###### ",  # Markdown H6
-                ". ",  # Sentence end (with space)
-                "! ",  # Sentence end (with space)
-                "? ",  # Sentence end (with space)
-                ", ",  # Comma (less ideal, but fallback)
-                " ",  # Space (word split)
-                "",  # Character by character (last resort)
-            ],
-            is_separator_regex=False
+    def __init__(self):
+        """
+        Initializes the SemanticDocumentProcessor.
+        It retrieves a shared instance of the embeddings model and sets up the
+        SemanticChunker.
+        """
+        embeddings = get_embeddings_instance()
+        if not embeddings:
+            logger.critical("SemanticDocumentProcessor: Could not get embeddings instance. Semantic chunking will fail.")
+            raise RuntimeError("Failed to initialize embeddings for SemanticDocumentProcessor.")
+
+        # Using the percentile threshold can be more robust to different document types.
+        # It determines splits based on the distribution of semantic similarity scores.
+        self.text_splitter = SemanticChunker(
+            embeddings, breakpoint_threshold_type="percentile"
         )
-        logger.info(f"DocumentProcessor initialized with chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
+        logger.info("SemanticDocumentProcessor initialized with SemanticChunker.")
 
     def load_document(self, file_path: str, file_type: str) -> List[str]:
         """Load document based on file type."""
@@ -114,21 +111,43 @@ class DocumentProcessor:
             raise
 
     def chunk_documents(self, texts: List[str], metadata: Dict[str, Any]) -> List[Document]:
-        """Chunk documents with metadata."""
-        documents = []
-        for text_idx, text in enumerate(texts):
-            if not text or not text.strip():
-                logger.warning(f"Skipping empty or whitespace-only text input for chunking (index: {text_idx}).")
+        """
+        Chunk documents using the SemanticChunker and enrich with metadata.
+        
+        The SemanticChunker's `create_documents` method is used here, which directly
+        returns Langchain `Document` objects. This method then iterates through
+        these chunks to add the necessary document-level and chunk-specific metadata.
+        """
+        all_docs = []
+        # The SemanticChunker works on a list of raw texts.
+        # It's often best to pass each document's full text as a single element.
+        for text_content in texts:
+            if not text_content or not text_content.strip():
+                logger.warning("Skipping empty or whitespace-only text input for chunking.")
                 continue
-            chunks = self.text_splitter.split_text(text)
-            logger.info(f"Chunked text {text_idx + 1} into {len(chunks)} pieces.")
-            for i, chunk in enumerate(chunks):
-                if not chunk or not chunk.strip():
-                    logger.debug(f"Skipping empty or whitespace-only chunk (index: {i}) from text {text_idx + 1}.")
+
+            # `create_documents` returns a list of Document objects, each representing a chunk.
+            chunks = self.text_splitter.create_documents([text_content])
+            logger.info(f"Semantically chunked a text block into {len(chunks)} pieces.")
+
+            for i, chunk_doc in enumerate(chunks):
+                # The chunk_doc already has page_content. We just need to add/update metadata.
+                if not chunk_doc.page_content or not chunk_doc.page_content.strip():
+                    logger.debug(f"Skipping empty or whitespace-only chunk (index: {i}).")
                     continue
-                doc_metadata = metadata.copy()
-                doc_metadata['chunk_id'] = i
-                doc_metadata['timestamp'] = datetime.now().isoformat()
-                documents.append(Document(page_content=chunk.strip(), metadata=doc_metadata))
-        logger.info(f"Total {len(documents)} document chunks created with metadata.")
-        return documents
+                
+                # Merge the base metadata with chunk-specific info
+                final_metadata = metadata.copy()
+                final_metadata['chunk_id'] = i
+                final_metadata['timestamp'] = datetime.now().isoformat()
+                
+                # If the chunker added any of its own metadata, preserve it.
+                chunk_doc.metadata.update(final_metadata)
+                
+                # Ensure content is stripped of leading/trailing whitespace
+                chunk_doc.page_content = chunk_doc.page_content.strip()
+                
+                all_docs.append(chunk_doc)
+
+        logger.info(f"Total {len(all_docs)} document chunks created with metadata.")
+        return all_docs 

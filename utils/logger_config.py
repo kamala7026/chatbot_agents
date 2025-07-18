@@ -1,40 +1,55 @@
 import logging
 import os
+from pathlib import Path
+
+# Import the configurable log directory
+from core.config import LOG_DIR
+
+# This global flag ensures the setup process runs only once.
+_logging_configured = False
 
 def setup_logging():
-    """Configures logging for the application."""
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, "app.log")
+    """
+    Configures logging for the application.
+    This function is now idempotent and will only run once per process.
+    It configures the root logger to allow integration with libraries like Uvicorn.
+    """
+    global _logging_configured
+    if _logging_configured:
+        return
 
-    # Create logger
+    # Get the root logger
     logger = logging.getLogger("aviator_chatbot")
     logger.setLevel(logging.DEBUG)
 
-    # Clear existing handlers to prevent duplicate logs in Streamlit reruns
+    # Prevent adding handlers multiple times by clearing any existing ones.
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    # Create console handler
-    c_handler = logging.StreamHandler()
-    c_handler.setLevel(logging.DEBUG)
+    # Use the configured log directory, ensuring it's a Path object for robustness
+    log_dir = Path(LOG_DIR)
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = log_dir / "app.log"
 
-    # Create file handler
+    # Create file handler - Uvicorn will handle the console stream
     f_handler = logging.FileHandler(log_file)
-    f_handler.setLevel(logging.DEBUG) # Log warnings and errors to file
+    f_handler.setLevel(logging.DEBUG)
 
-    # Create formatters and add to handlers
-    c_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    f_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    c_handler.setFormatter(c_format)
+    # Create formatter and add to handler
+    f_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     f_handler.setFormatter(f_format)
 
-    # Add handlers to the logger
-    logger.addHandler(c_handler)
+    # Add file handler to the logger
     logger.addHandler(f_handler)
 
-    logger.info("Logging configured successfully.")
-    return logger
+    # Mark as configured
+    _logging_configured = True
+    
+    # Log to confirm setup
+    logging.getLogger("aviator_chatbot").info("File logging configured successfully.")
 
-# Initialize logger for the entire application
-logger = setup_logging()
+
+# Get the logger instance. The setup will be called from the app's entry point.
+logger = logging.getLogger("aviator_chatbot")
