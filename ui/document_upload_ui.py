@@ -2,13 +2,11 @@ import streamlit as st
 import uuid
 import logging
 
+# Import centralized configuration for metadata options
+from core.config import CATEGORIES, STATUS_OPTIONS, ACCESS_OPTIONS
+
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
-
-# Constants (consistent with core/chatbot.py)
-CATEGORIES = ["TGO", "LENS", "AO", "AIC"]
-STATUS_OPTIONS = ["Active", "Inactive"]
-ACCESS_OPTIONS = ["Internal", "External"]
 
 def render_document_upload_ui(chatbot, doc_manager):
     """Renders the document upload interface."""
@@ -87,29 +85,3 @@ def render_document_upload_ui(chatbot, doc_manager):
             else:
                 st.error("❌ Please select a file to upload.")
                 logger.warning("Document upload failed: No file selected.")
-
-    st.subheader("📊 Database Overview")
-    try:
-        if chatbot.vectorstore:
-            collection = chatbot.vectorstore._collection
-            count = collection.count()
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("📚 Total Chunks", count)
-            with col2:
-                st.metric("🗃️ Database Type", "ChromaDB")
-            with col3:
-                st.metric("👤 Access Context", st.session_state.current_user_type)
-
-            if count > 0:
-                st.success("🎉 Documents are ready for querying!")
-                st.info("💡 Switch to the **Chat** tab to start asking questions about your documents.")
-            else:
-                st.info("📁 No documents uploaded yet. Upload your first document above!")
-            logger.debug(f"Document upload UI: Database overview displayed, {count} chunks.")
-
-    except Exception as e:
-        st.error(f"❌ Error accessing database: {str(e)}")
-        st.info("Try re-initializing the chatbot from the sidebar.")
-        logger.error(f"Error displaying database overview: {e}")

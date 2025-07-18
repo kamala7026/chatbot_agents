@@ -1,9 +1,11 @@
 import logging
 from typing import List, Dict, Any
 from langchain_core.language_models import BaseChatModel
-from langchain.prompts import PromptTemplate
 from langchain.schema import Document as LangchainDocument
-from langchain.vectorstores import Chroma
+from langchain_core.vectorstores import VectorStore # Use generic VectorStore
+
+# Import the new prompt manager
+from .prompt_manager import PromptManager
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
@@ -11,19 +13,12 @@ logger = logging.getLogger("aviator_chatbot")
 class RAGRetriever:
     """Simple RAG retriever with metadata filtering and multi-query."""
 
-    def __init__(self, vectorstore: Chroma, llm: BaseChatModel, user_type: str = "non-support"):
+    def __init__(self, vectorstore: VectorStore, llm: BaseChatModel, user_type: str = "non-support"):
         self.vectorstore = vectorstore
         self.user_type = user_type
         self.llm = llm
-
-        self.query_gen_prompt = PromptTemplate.from_template("""
-        You are a helpful AI assistant. Your task is to generate 5 different versions of the given user question that are semantically similar but use different phrasing.
-        These variations will be used to retrieve more comprehensive results from a document database.
-
-        Original question: {question}
-
-        Generated questions (one per line, do not number them):
-        """)
+        # Get the prompt from the centralized manager
+        self.query_gen_prompt = PromptManager.get_query_generation_prompt()
         logger.info(f"RAGRetriever initialized for user_type: {user_type}")
 
     def get_relevant_documents(self, query: str) -> List[LangchainDocument]:
@@ -37,7 +32,7 @@ class RAGRetriever:
 
         for q in query_variations:
             try:
-                results = self.vectorstore.similarity_search(q, k=10)
+                results = self.vectorstore.similarity_search(q, k=30)
                 logger.debug(f"Found {len(results)} raw results for variation: '{q}'")
                 filtered_results = self._filter_by_metadata(results)
 
@@ -49,7 +44,7 @@ class RAGRetriever:
                 logger.error(f"Error in similarity search for '{q}': {e}")
                 continue
 
-        final_results = all_results[:10]
+        final_results = all_results[:20]
         logger.info(f"Returning {len(final_results)} relevant unique documents.")
         return final_results
 
@@ -76,12 +71,12 @@ class RAGRetriever:
             doc_access = metadata.get("access", "").lower()
 
             if doc_status != "active":
-                logger.debug(f"Filtering out document due to inactive status: {metadata.get('filename')}")
+                logger.debug(f"Filtering out document '{metadata.get('filename')}' due to inactive status ('{doc_status}').")
                 continue
 
             if self.user_type == "non-support" and doc_access != "external":
-                logger.debug(f"Filtering out document due to internal access for non-support user: {metadata.get('filename')}")
+                logger.debug(f"Filtering out document '{metadata.get('filename')}' for 'non-support' user due to internal access ('{doc_access}').")
                 continue
             filtered.append(doc)
-        logger.debug(f"Filtered {len(documents)} documents down to {len(filtered)} based on metadata.")
+        logger.debug(f"Filtered {len(documents)} documents down to {len(filtered)} based on metadata for user_type '{self.user_type}'.")
         return filtered

@@ -3,6 +3,8 @@ import logging
 import uuid
 import time # Import time for simulating delays
 
+# The content_renderer import is removed as the file is deleted.
+
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
 
@@ -59,12 +61,9 @@ def render_chat_ui(chatbot_instance): # Renamed 'chatbot' to 'chatbot_instance' 
     chat_messages_container = st.container(height=400, border=True)
 
     with chat_messages_container:
-        # Display all COMPLETED messages from chat history
-        for i, message in enumerate(st.session_state.chat_history):
-            if message["role"] == "user":
-                avatar_icon = "👤"
-            else:  # Assistant message
-                avatar_icon = "✈️"
+        # Display all COMPLETED messages from chat history directly
+        for message in st.session_state.chat_history:
+            avatar_icon = "👤" if message["role"] == "user" else "✈️"
             with st.chat_message(message["role"], avatar=avatar_icon):
                 st.markdown(message["content"])
 
@@ -78,44 +77,18 @@ def render_chat_ui(chatbot_instance): # Renamed 'chatbot' to 'chatbot_instance' 
                         <div class="loading-dot"></div>
                         <div class="loading-dot"></div>
                     </div>
-                    <style>
-                        .loading-dots-container {
-                            display: flex;
-                            align-items: center; /* Vertically centers the dots within their container */
-                            /* REMOVED: justify-content: center; */
-                            /* ADDED: flex-start and padding-left for left alignment */
-                            justify-content: flex-start; /* Aligns items to the start (left) of the container */
-                            padding-left: 15px; /* Adjust this value to visually match text indentation */
-                            height: 30px;
-                        }
-                        .loading-dot {
-                            width: 8px;
-                            height: 8px;
-                            background-color: #6495ED;
-                            border-radius: 50%;
-                            margin: 0 4px;
-                            animation: bounce 0.8s infinite ease-in-out;
-                        }
-                        .loading-dot:nth-child(2) {
-                            animation-delay: 0.2s;
-                        }
-                        .loading-dot:nth-child(3) {
-                            animation-delay: 0.4s;
-                        }
-                        @keyframes bounce {
-                            0%, 100% { transform: translateY(0); }
-                            50% { transform: translateY(-10px); }
-                        }
-                    </style>
                 """, unsafe_allow_html=True)
 
             # --- Critical Change for Non-Streaming Test ---
             # Call the chatbot.chat method. Since it's now non-streaming and contains time.sleep(2),
             # the app will freeze here for 2 seconds, during which the loading dots should be visible.
             full_response = chatbot_instance.chat(st.session_state.prompt_to_process)
+            
+            # To fix the single-line issue, we forcefully insert newlines before each bullet.
+            # The '■ ' with a space is important to avoid breaking words that might contain the symbol.
+            sanitized_response = full_response.replace('■ ', '\n\n* ').replace('• ', '\n\n* ')
 
-            # Add the complete response to chat history after the delay
-            st.session_state.chat_history.append({"role": "assistant", "content": full_response})
+            st.session_state.chat_history.append({"role": "assistant", "content": sanitized_response})
             logger.info("Chatbot non-streaming response completed and added to history.")
 
             # Reset processing flags and trigger rerun to show the final message

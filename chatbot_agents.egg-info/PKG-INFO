@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: chatbot_agents
+Version: 0.1.0
+Summary: A chatbot application with agentic tools and a multi-session API.
+Author: Aviator
+Author-email: kbehera@opentext.com
+Dynamic: author
+Dynamic: author-email
+Dynamic: summary

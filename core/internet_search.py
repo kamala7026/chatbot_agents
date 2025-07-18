@@ -1,21 +1,22 @@
-import os
 import logging
+import os
 from tavily import TavilyClient
+from core.config import TAVILY_API_KEY
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
 
 class InternetSearchTool:
-    """Tool for internet search using Tavily API."""
-
+    """
+    A tool for performing internet searches using the Tavily API.
+    It can provide concise answers and lists of relevant source links.
+    """
     def __init__(self):
-        self.TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
-        if not self.TAVILY_API_KEY:
+        if not TAVILY_API_KEY:
             logger.critical("Tavily API Key (TAVILY_API_KEY) not found in environment variables.")
             raise ValueError("Tavily API Key (TAVILY_API_KEY) not found in environment variables. Get it from tavily.com")
-
-        self.tavily_client = TavilyClient(api_key=self.TAVILY_API_KEY)
+        
+        self.tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
         logger.info("InternetSearchTool initialized.")
 
     def search(self, query: str, num_results: int = 3) -> str:
