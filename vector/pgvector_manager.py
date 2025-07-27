@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 import sqlalchemy
 from langchain_community.vectorstores.pgvector import PGVector
-from core.embedding_manager import get_embeddings_instance # Use the singleton manager
-from core.config import PGVECTOR_CONNECTION_STRING, COLLECTION_NAME
+from core.common.config import PGVECTOR_CONNECTION_STRING, COLLECTION_NAME
+from .embedding_manager import get_embeddings_instance # Use the singleton manager
 from langchain.schema import Document
 import psycopg # Added for direct database connection
 

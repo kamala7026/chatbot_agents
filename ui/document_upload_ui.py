@@ -3,7 +3,7 @@ import uuid
 import logging
 
 # Import centralized configuration for metadata options
-from core.config import CATEGORIES, STATUS_OPTIONS, ACCESS_OPTIONS
+from core.common.config import CATEGORIES, STATUS_OPTIONS, ACCESS_OPTIONS
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")

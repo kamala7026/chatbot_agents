@@ -1,10 +1,11 @@
 import logging
-from core.config import VECTOR_STORE_TYPE
+from core.common.config import VECTOR_STORE_TYPE
 from .vectorstore_manager import ChromaDBManager
 from .pgvector_manager import PGVectorManager
 from langchain_core.vectorstores import VectorStore
 
-logger = logging.getLogger("aviator_chatbot")
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 def get_vectorstore() -> VectorStore:
     """

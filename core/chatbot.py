@@ -2,56 +2,29 @@ import os
 import uuid
 import tempfile
 import logging
-import torch
-import chromadb
+from typing import List, Dict, Any
 
-from typing import List, Dict, Any, Optional
-from langchain_core.language_models import BaseChatModel
-from langchain.memory import ConversationBufferWindowMemory
-from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.vectorstores import VectorStore # Use the generic type
 
-# Import core components
-from .embedding_manager import get_embeddings_instance
-from vector.chromavector_manager import get_vectorstore, get_vectorstore_chunk_count # Use the new factory
-from .prompt_manager import PromptManager
-from core.semantic_document_processor import SemanticDocumentProcessor
-from core.rag_retriever import RAGRetriever  # The actual retriever logic
-#from core.internet_search import InternetSearchTool as CoreInternetSearch  # The actual Tavily client
-
-# Import tool wrappers
-from tools.ticket_create_agent import TicketCreationTool
-from tools.rag_tool import RAGTool  # New
-from tools.internet_search_tool import InternetSearchTool as AgentInternetSearchTool  # New, avoid name collision
-from tools.default_response_tool import DefaultResponseTool  # New
-
-from utils.logger_config import logger  # Import the configured logger
-
-
-# DEFAULT_CHROMA_MAX_BATCH_SIZE = 5000
-
-# Configure ChromaDB telemetry globally
-# os.environ['CHROMA_ANALYTICS'] = 'False'
-# TAVILY_API_KEY is now loaded from the .env file by core/config.py
-# os.environ['TAVILY_API_KEY'] = "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"
-
+from vector.embedding_manager import get_embeddings_instance
+from vector.chromavector_manager import get_vectorstore, get_vectorstore_chunk_count
+from vector.semantic_document_processor import SemanticDocumentProcessor
+from core.common.prompt_manager import PromptManager
+from agent.agent_manager import AgentManager  # Import the new manager
+from utils.logger_config import logger
 
 class RAGChatbot:
-    """Main RAG Chatbot class, orchestrating RAG, tools, and LLM interactions."""
+    """Main RAG Chatbot class, focused on chat orchestration and document management."""
 
     def __init__(self):
-        # Components are now lazy-loaded or retrieved from singletons.
-        # The actual initialization happens in initialize_components or on first use.
         self.embeddings = None
         self.vectorstore = None
         self.document_processor = SemanticDocumentProcessor()
         self.llm = None
-        #self.core_internet_search_client = CoreInternetSearch()
-        self.agent_prompt_template = None
-        self.google_api_key = None # To store the key for re-initialization
-        self.initialized = False # The new flag
+        self.agent_manager = None  # Add a placeholder for the agent manager
+        self.google_api_key = None
+        self.initialized = False
         logger.info("RAGChatbot instance created (now stateless).")
 
     def _ensure_initialized(self):
@@ -60,7 +33,7 @@ class RAGChatbot:
         If not, it will attempt to 'self-heal' by re-initializing.
         Raises an exception if it cannot recover.
         """
-        if self.llm and self.vectorstore and self.agent_prompt_template:
+        if self.initialized and self.agent_manager:
             return  # Already initialized, do nothing
 
         logger.warning("Chatbot components are not initialized. Attempting to self-heal...")
@@ -71,14 +44,12 @@ class RAGChatbot:
             raise Exception("Fatal: Could not re-initialize chatbot components.")
 
     def initialize_components(self, google_api_key: str) -> bool:
-        """Initialize LLM, embeddings, vector store, and agent prompt."""
-        # Store the API key in case re-initialization is needed
+        """Initialize LLM, embeddings, vector store, and the new agent manager."""
         self.google_api_key = google_api_key
         logger.info("Initializing chatbot components...")
         try:
-            # Retrieve singleton instances from their managers
             self.embeddings = get_embeddings_instance()
-            self.vectorstore = get_vectorstore() # Use the factory
+            self.vectorstore = get_vectorstore()
             logger.info("Embeddings model and vector store successfully loaded via managers.")
 
             self.llm = ChatGoogleGenerativeAI(
@@ -91,11 +62,12 @@ class RAGChatbot:
             if self.vectorstore is None:
                 raise Exception("Vector store failed to initialize after all attempts.")
 
-            # Pre-compile the agent prompt template by fetching it from the manager
-            self.agent_prompt_template = PromptManager.get_agent_prompt()
+            # Initialize the new AgentManager
+            self.agent_manager = AgentManager(self.llm, self.vectorstore)
+            logger.info("AgentManager initialized successfully.")
 
             logger.info("Chatbot components initialized successfully.")
-            self.initialized = True # Set the flag on success
+            self.initialized = True
             return True
 
         except Exception as e:
@@ -103,63 +75,17 @@ class RAGChatbot:
             self.embeddings = None
             self.llm = None
             self.vectorstore = None
-            self.initialized = False # Ensure flag is false on failure
+            self.agent_manager = None
+            self.initialized = False
             return False
 
-    def get_agent_executor(self, user_type: str, chat_history: List[Any]) -> AgentExecutor:
-        """Dynamically creates a LangChain agent with the given history."""
-        self._ensure_initialized()
-
-        # Add assertions to satisfy the linter after the check
-        assert self.llm is not None
-        assert self.vectorstore is not None
-        assert self.agent_prompt_template is not None
-
-        retriever_logic = RAGRetriever(self.vectorstore, self.llm, user_type)
-
-        # Create a temporary memory for this specific conversation turn
-        memory = ConversationBufferWindowMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            k=15 # Allow a larger buffer for context
-        )
-        # Load the provided history into the temporary memory
-        for message in chat_history:
-            if message['role'] == 'user':
-                memory.chat_memory.add_user_message(message['content'])
-            elif message['role'] == 'assistant':
-                memory.chat_memory.add_ai_message(message['content'])
-
-        def get_current_chat_history() -> List[Any]:
-            return memory.load_memory_variables({})['chat_history']
-
-        tools = [
-            RAGTool(retriever_logic).get_tool(),
-            DefaultResponseTool().get_tool(),
-            TicketCreationTool(self.llm, chat_history_provider=get_current_chat_history).get_tool()
-        ]
-        
-        tool_names = [tool.name for tool in tools]
-        logger.debug(f"Agent created with tools: {tool_names}")
-
-        # The agent prompt is now retrieved from the cached instance variable
-        prompt = self.agent_prompt_template
-
-        return AgentExecutor(
-            agent=create_react_agent(self.llm, tools, prompt),
-            tools=tools,
-            memory=memory,
-            verbose=True,
-            handle_parsing_errors=True,
-            max_iterations=8,
-            max_execution_time=120
-        )
-
     def chat(self, message: str, user_type: str, chat_history: List[Dict[str, str]]) -> str:
-        """Handles chat by creating a temporary agent with the provided history."""
+        """Handles chat by delegating agent creation to the AgentManager."""
         logger.info(f"Received chat message from user_type '{user_type}'. Message: '{message}'")
         try:
-            agent_executor = self.get_agent_executor(user_type, chat_history)
+            self._ensure_initialized()
+            assert self.agent_manager is not None
+            agent_executor = self.agent_manager.get_agent_executor(user_type, chat_history)
             response = agent_executor.invoke({"input": message})
             output = response.get("output", "Sorry, I had trouble generating a response.")
             logger.info(f"Agent generated response: '{output}'")
@@ -175,23 +101,16 @@ class RAGChatbot:
         self._ensure_initialized()
         assert self.llm is not None
 
-        prompt_text = (
-            "Summarize the following user's first message into a short, descriptive title of no more than 5 words. "
-            "For example, 'Tell me about the Q2 earnings report' could be 'Q2 Earnings Report'.\n\n"
-            "USER MESSAGE: '{message}'\n\n"
-            "TITLE:"
-        )
+        prompt_text = PromptManager.get_chat_title_prompt()
         prompt = PromptTemplate.from_template(prompt_text)
         
         chain = prompt | self.llm
         try:
             response = chain.invoke({"message": user_message})
-            # The response object from langchain has a 'content' attribute
             content = response.content
             if isinstance(content, str):
                 title = content.strip().strip('"')
             else:
-                # Handle cases where content is not a direct string
                 title = str(content).strip().strip('"')
 
             logger.info(f"Generated chat title: '{title}'")
@@ -199,7 +118,7 @@ class RAGChatbot:
         except Exception as e:
             logger.error(f"Error generating chat title: {e}", exc_info=True)
             return "Untitled Chat"
-
+    
     def add_document(self, file_contents: bytes, filename: str, category: str, description: str, status: str, access: str) -> bool:
         """Add document to vector store, now taking file content and name directly."""
         try:

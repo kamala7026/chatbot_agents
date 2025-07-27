@@ -3,7 +3,7 @@ import logging
 
 # Import the necessary classes from their respective modules
 from core.chatbot import RAGChatbot
-from core.document_management import DocumentManager # Assuming document_management.py is at the root
+from core.services.document_service import DocumentService # Assuming document_management.py is at the root
 
 # Initialize logger for this module
 logger = logging.getLogger("aviator_chatbot")
@@ -68,7 +68,7 @@ def render_sidebar(chatbot, doc_manager):
                     st.session_state.chatbot = RAGChatbot()
                     st.session_state.chat_history = []
                     # Re-create DocumentManager to reflect potential underlying DB changes
-                    st.session_state.doc_manager = DocumentManager()
+                    st.session_state.doc_manager = DocumentService()
                     # Reset data editor key counter if it exists (from previous attempts)
                     if 'doc_editor_key_counter' in st.session_state:
                          st.session_state.doc_editor_key_counter = 0

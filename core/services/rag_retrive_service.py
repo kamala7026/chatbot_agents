@@ -5,15 +5,14 @@ from langchain.schema import Document as LangchainDocument
 from langchain_core.vectorstores import VectorStore # Use generic VectorStore
 
 # Import the new prompt manager
-from .prompt_manager import PromptManager
+from core.common.prompt_manager import PromptManager
+from utils.logger_config import logger
 
-# Initialize logger
-logger = logging.getLogger("aviator_chatbot")
 
-class RAGRetriever:
-    """Simple RAG retriever with metadata filtering and multi-query."""
+class RAGRetrieveService:
+    """Handles the retrieval of relevant documents from the vector store."""
 
-    def __init__(self, vectorstore: VectorStore, llm: BaseChatModel, user_type: str = "non-support"):
+    def __init__(self, vectorstore: VectorStore, llm: BaseChatModel, user_type: str):
         self.vectorstore = vectorstore
         self.user_type = user_type
         self.llm = llm

@@ -4,7 +4,7 @@ from langchain_core.tools import Tool
 from langchain.schema import Document as LangchainDocument
 
 # Import RAGRetriever from core since it's a core component for retrieval logic
-from core.rag_retriever import RAGRetriever
+from core.services.rag_retrive_service import RAGRetrieveService
 
 # Initialize logger for this module
 logger = logging.getLogger("aviator_chatbot")
@@ -14,7 +14,7 @@ class RAGTool:
     A LangChain Tool wrapper for the RAGRetriever.
     It encapsulates the logic for searching information within uploaded documents.
     """
-    def __init__(self, retriever: RAGRetriever):
+    def __init__(self, retriever: RAGRetrieveService):
         """
         Initializes the RAGTool.
 

@@ -3,7 +3,7 @@ from typing import Any
 from langchain_core.tools import Tool
 
 # Import InternetSearchTool from core since it contains the actual search logic
-from core.internet_search import InternetSearchTool as CoreInternetSearch
+from core.services.internet_search_service import InternetSearchService as CoreInternetSearch
 
 # Initialize logger for this module
 logger = logging.getLogger("aviator_chatbot")

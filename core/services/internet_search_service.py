@@ -1,12 +1,12 @@
 import logging
 import os
 from tavily import TavilyClient
-from core.config import TAVILY_API_KEY
+from core.common.config import TAVILY_API_KEY
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")
 
-class InternetSearchTool:
+class InternetSearchService:
     """
     A tool for performing internet searches using the Tavily API.
     It can provide concise answers and lists of relevant source links.

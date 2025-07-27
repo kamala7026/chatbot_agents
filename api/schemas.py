@@ -19,4 +19,18 @@ class DocumentMetadataUpdate(BaseModel):
 
 class StandardResponse(BaseModel):
     """A standard response model for simple success messages."""
-    message: str 
+    message: str
+
+class FeedbackRequest(BaseModel):
+    """Schema for message feedback (like/dislike)."""
+    username: str
+    chat_id: str
+    message_index: int
+    user_message: str
+    assistant_message: str
+    feedback_type: str  # 'liked' or 'disliked'
+
+class FeedbackResponse(BaseModel):
+    """Response for feedback submission."""
+    message: str
+    feedback_id: str 
