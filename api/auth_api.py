@@ -3,34 +3,14 @@ Authentication API endpoints.
 """
 import logging
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from core.services.user_service import UserService, get_user_service_dependency
+from api.schemas import LoginRequest, LoginResponse, UserInfoResponse
 
 logger = logging.getLogger(__name__)
 
 # Router for authentication endpoints
 auth_router = APIRouter(prefix="/auth", tags=["authentication"])
-
-class LoginRequest(BaseModel):
-    """Request model for user login."""
-    username: str
-    password: str
-
-class LoginResponse(BaseModel):
-    """Response model for successful login."""
-    success: bool
-    message: str
-    user: Optional[Dict[str, Any]] = None
-
-class UserInfoResponse(BaseModel):
-    """Response model for user information."""
-    id: int
-    username: str
-    user_type: str
-    full_name: Optional[str] = None
-    email: Optional[str] = None
-    is_active: bool
 
 @auth_router.post("/login", response_model=LoginResponse, summary="Authenticate user")
 async def login(

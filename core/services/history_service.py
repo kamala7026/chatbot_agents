@@ -3,6 +3,7 @@ import logging
 from typing import List, Dict, Any, Optional
 import uuid
 import psycopg
+from core.common.schemas import ChatMessage, ChatSession
 
 from vector.pgvector_manager import PGVectorManager
 

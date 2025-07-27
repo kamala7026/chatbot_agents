@@ -5,7 +5,7 @@ import time
 import re
 import os
 import sys
-from config import API_BASE_URL
+from .config import API_BASE_URL
 from utils.logger_config import logger # Import the configured logger
 
 # --- Configuration ---

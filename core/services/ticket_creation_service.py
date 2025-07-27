@@ -1,26 +1,13 @@
 # core/ticket_creation_service.py
 import json
 from typing import Dict, Any, List
-from pydantic import BaseModel, Field
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 
 from core.common.prompt_manager import PromptManager
+from core.common.schemas import TicketDetails, ExtractionResponse
 from utils.logger_config import logger
 
-
-# --- Pydantic Models for Ticket Creation ---
-class TicketDetails(BaseModel):
-    """Data model for holding the details of a support ticket."""
-    department: str = Field(..., description="The department for the ticket (e.g., IT, HR, PS).")
-    severity: str = Field(..., description="The severity of the issue (e.g., High, Medium, Low).")
-    client_name: str = Field(..., description="The name of the impacted client.")
-    impacted_time: str = Field(..., description="The time the issue occurred (e.g., 'yesterday', 'today 2 PM').")
-
-class ExtractionResponse(BaseModel):
-    """Model for the data extracted by the LLM."""
-    mentioned_fields: List[str] = Field(description="List of fields explicitly mentioned in the user's last message.")
-    extracted_data: Dict[str, Any] = Field(description="The actual data extracted for the mentioned fields.")
 
 
 # --- Service Class for Core Logic ---

@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from config import API_BASE_URL
+from .config import API_BASE_URL
 from utils.logger_config import logger # Import the configured logger
 
 # Import centralized configuration for metadata options

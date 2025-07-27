@@ -35,3 +35,6 @@ core/__pycache__/internet_search.cpython-313.pyc
 /tools/__pycache__
 /utils/__pycache__
 /vector/__pycache__
+/api/__pycache__
+api/__init__.py
+streamlit_ui/__init__.py

@@ -18,6 +18,7 @@ from vector.embedding_manager import get_embeddings_instance
 from vector.chromavector_manager import get_vectorstore, get_all_documents_metadata, delete_document, update_document_metadata 
 from utils.logger_config import logger
 from vector.semantic_document_processor import SemanticDocumentProcessor
+from core.common.schemas import DocumentMetadata
 
 # --- Constants ---
 # No longer needed here, defined in the manager

@@ -7,7 +7,8 @@ from langchain_core.tools import Tool
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from core.services.ticket_creation_service import TicketCreationService, ExtractionResponse
+from core.services.ticket_creation_service import TicketCreationService
+from core.common.schemas import ExtractionResponse
 from utils.logger_config import logger
 
 # Initialize logger for this module

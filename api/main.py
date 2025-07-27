@@ -16,18 +16,15 @@ setup_logging()
 # Load environment variables from .env file
 load_dotenv()
 
-from api.dependencies import get_chatbot_logic
+from .dependencies import get_chatbot_logic, get_doc_manager_instance
 from core.services.history_service import HistoryService
-
-# Import the singleton instances
-from api.dependencies import get_chatbot_logic, get_doc_manager_instance
 # No longer need to import these here, they are managed by the dependency injectors
 # from core.chatbot import RAGChatbot
 # from core.services.document_service import DocumentService
 # from core.services.history_service import HistoryService # Import the new manager
 
 # Import API routers
-from api import chat_api, documents_api, history_api, auth_api
+from . import chat_api, documents_api, history_api, auth_api
 
 # Initialize the History Database
 HistoryService.initialize_database()

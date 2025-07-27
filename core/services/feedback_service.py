@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 import os
 from utils.logger_config import logger
 from core.common.config import PGVECTOR_CONNECTION_STRING
+from core.common.schemas import FeedbackEntry
 
 class FeedbackService:
     """Service for managing user feedback on AI responses."""

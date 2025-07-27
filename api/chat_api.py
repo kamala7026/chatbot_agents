@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
-from pydantic import BaseModel
 from typing import List, Dict, Any
 
 # Import the configured logger
@@ -9,17 +8,9 @@ from core.chatbot import RAGChatbot
 from core.services.history_service import HistoryService # Import the new manager
 from core.services.feedback_service import get_feedback_service, FeedbackService
 from api.dependencies import get_chatbot_logic, get_history_manager, get_feedback_service_dependency
-from api.schemas import FeedbackRequest, FeedbackResponse
+from api.schemas import FeedbackRequest, FeedbackResponse, ChatRequest, ChatResponse
 
-# --- Pydantic Models ---
-class ChatRequest(BaseModel):
-    username: str
-    chat_id: str | None = None
-    user_input: str
 
-class ChatResponse(BaseModel):
-    response: str
-    chat_id: str
 
 # --- API Router ---
 router = APIRouter()
