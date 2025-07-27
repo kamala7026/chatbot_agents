@@ -6,8 +6,8 @@ from langchain_community.vectorstores import Chroma
 from typing import Optional, List, Dict, Any
 
 # Import singleton managers and configuration
-from core.embedding_manager import get_embeddings_instance
-from core.config import CHROMA_PERSIST_DIR, COLLECTION_NAME
+from .embedding_manager import get_embeddings_instance
+from core.common.config import CHROMA_PERSIST_DIR, COLLECTION_NAME
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")

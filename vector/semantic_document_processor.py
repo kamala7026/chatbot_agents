@@ -9,7 +9,7 @@ from langchain_experimental.text_splitter import SemanticChunker
 from langchain.schema import Document
 
 # Import the shared embedding model instance
-from .embedding_manager import get_embeddings_instance
+from vector.embedding_manager import get_embeddings_instance
 
 # Initialize logger
 logger = logging.getLogger("aviator_chatbot")

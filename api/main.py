@@ -9,87 +9,76 @@ from dotenv import load_dotenv
 # Import the configured logger
 from utils.logger_config import logger, setup_logging
 
+# --- Pre-computation and Setup ---
+# Set up logging first to capture messages from all modules
+setup_logging()
+
 # Load environment variables from .env file
 load_dotenv()
 
-# Import the singleton instances
-from api.dependencies import get_chatbot_logic, get_doc_manager_instance
-from core.chatbot import RAGChatbot
-from core.document_management import DocumentManager
-from core.history_manager import HistoryManager # Import the new manager
+from .dependencies import get_chatbot_logic, get_doc_manager_instance
+from core.services.history_service import HistoryService
+# No longer need to import these here, they are managed by the dependency injectors
+# from core.chatbot import RAGChatbot
+# from core.services.document_service import DocumentService
+# from core.services.history_service import HistoryService # Import the new manager
 
 # Import API routers
-from api import chat_api, documents_api, history_api
+from . import chat_api, documents_api, history_api, auth_api
 
 # Initialize the History Database
-HistoryManager.initialize_database()
+HistoryService.initialize_database()
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
-    title="Aviator Chatbot API - Multi-Session",
-    description="A unified API for chat and document management with session handling.",
-    version="1.1.0",
+    title="AI Chatbot API",
+    description="API for the AI Chatbot with document management and chat history.",
+    version="1.0.0"
 )
 
-# --- CORS Middleware ---
+# --- Middleware ---
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict this in production
+    allow_origins=["*"],  # In production, restrict this to your frontend's domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Logging Middleware ---
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Logs incoming requests, including method, path, and processing time."""
-    start_time = time.time()
-    client_host = request.client.host if request.client else "unknown"
-    logger.info(f"Request: {request.method} {request.url.path} from {client_host}")
-    
-    response = await call_next(request)
-    
-    process_time = (time.time() - start_time) * 1000
-    logger.info(f"Response: {response.status_code} for {request.url.path} processed in {process_time:.2f}ms")
-    
-    return response
-
-# --- App Lifecycle Events ---
+# --- Event Handlers ---
 @app.on_event("startup")
 async def startup_event():
     """
     Initializes the shared, stateless chatbot logic instance.
     """
-    # Configure logging before any other operations
-    setup_logging()
-    
     logger.info("API server starting up...")
     
-    # Create and initialize the single chatbot logic instance and doc manager
-    app.state.chatbot_logic = RAGChatbot()
-    app.state.doc_manager = DocumentManager()
+    # Get the singleton instance of the chatbot
+    chatbot = get_chatbot_logic()
     
     google_api_key = os.environ.get("GOOGLE_API_KEY")
     if not google_api_key:
         logger.critical("GOOGLE_API_KEY not set. Please create a .env file with the key.")
-        raise RuntimeError("GOOGLE_API_KEY not set. Please create a .env file with the key.")
+    else:
+        # Initialize the components of the singleton instance
+        if not chatbot.initialize_components(google_api_key):
+            logger.critical("Failed to initialize chatbot components. The application may not function correctly.")
+            # Depending on requirements, you might want to raise a RuntimeError here
+            # raise RuntimeError("Failed to initialize chatbot components.")
     
-    # The key is now passed to the chatbot instance, which will store it for potential re-initialization.
-    if not app.state.chatbot_logic.initialize_components(google_api_key=google_api_key):
-        logger.critical("Failed to initialize chatbot components.")
-        raise RuntimeError("Failed to initialize chatbot components.")
-    
-    logger.info("Chatbot logic initialized successfully.")
-    logger.info("DocumentManager is ready (now fully stateless).")
+    logger.info("Chatbot logic initialized via singleton.")
+    logger.info("DocumentService is ready (managed by singleton).")
     logger.info("API is ready to accept requests.")
 
 # --- Include Routers ---
-app.include_router(chat_api.router)
-app.include_router(documents_api.router)
-app.include_router(history_api.router)
+app.include_router(chat_api.router, prefix="/chat", tags=["Chat"])
+app.include_router(documents_api.documents_router, prefix="/documents", tags=["Documents"])
+app.include_router(history_api.history_router, prefix="/history", tags=["History"])
+app.include_router(auth_api.auth_router, tags=["Authentication"])
+
 
 # --- Root Endpoint ---
-@app.get("/", tags=["Root"])
-async def read_root():
+@app.get("/")
+async def root():
     return {"message": "Welcome to the Aviator Chatbot API"} 

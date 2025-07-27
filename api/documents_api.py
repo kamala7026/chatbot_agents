@@ -1,93 +1,102 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from typing import List, Optional
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from typing import List, Optional, Dict, Any
 
-from .schemas import DocumentMetadata, StandardResponse, DocumentMetadataUpdate
+from api.schemas import DocumentMetadata, DocumentMetadataUpdate
+from core.services.document_service import DocumentService
 from api.dependencies import get_doc_manager_instance
-from utils.logger_config import logger
-from core.document_management import DocumentManager
-from vector.chromavector_manager import get_vectorstore_chunk_count
 
-router = APIRouter(
-    prefix="/documents",
-    tags=["Document Management"],
-)
+documents_router = APIRouter()
 
-@router.post("/upload", response_model=StandardResponse)
+@documents_router.post("/upload", summary="Upload a document")
 async def upload_document(
     file: UploadFile = File(...),
     description: str = Form(...),
     category: str = Form(...),
     status: str = Form(...),
     access: str = Form(...),
-    doc_manager: DocumentManager = Depends(get_doc_manager_instance)
+    doc_manager: DocumentService = Depends(get_doc_manager_instance)
 ):
     """
-    Uploads a document and adds it to the vector store.
-    """
-    if not doc_manager:
-        raise HTTPException(status_code=503, detail="Document manager not available.")
-    
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file name provided.")
-
-    metadata = {
-        "description": description,
-        "category": category,
-        "status": status,
-        "access": access
-    }
-    
-    success = doc_manager.add_document(file.filename, file.file, metadata)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to process and add document.")
-        
-    return StandardResponse(message="Document uploaded and processed successfully.")
-
-@router.get("/", response_model=List[DocumentMetadata])
-def get_all_documents(
-    doc_manager: DocumentManager = Depends(get_doc_manager_instance)
-):
-    """
-    Retrieves metadata for all documents in the vector store.
+    Uploads a document and its metadata.
     """
     try:
-        # Log the total number of chunks to help diagnose empty responses
-        total_chunks = get_vectorstore_chunk_count()
-        logger.info(f"Total chunks in vector store: {total_chunks}")
+        content = await file.read()
+        filename = file.filename
+        if not filename:
+            raise HTTPException(status_code=400, detail="Filename cannot be empty.")
 
-        docs = doc_manager.get_all_documents_metadata()
-        if docs is None:
-            raise HTTPException(status_code=500, detail="Failed to retrieve documents from the vector store.")
-        
-        logger.info(f"Retrieved metadata for {len(docs)} documents.")
-        return docs
+        metadata = {
+            "description": description,
+            "category": category,
+            "status": status,
+            "access": access
+        }
+        success = doc_manager.add_document(
+            file_contents=content,
+            filename=filename,
+            metadata=metadata
+        )
+        if success:
+            return {"message": "Document uploaded successfully", "filename": file.filename}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to process and add document.")
     except Exception as e:
-        logger.error(f"Error retrieving all document metadata: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
 
-@router.delete("/{document_id}", response_model=StandardResponse)
-def delete_document_by_id(
-    document_id: str,
-    doc_manager: DocumentManager = Depends(get_doc_manager_instance)
+@documents_router.get("/", response_model=Dict[str, Any], summary="Get all documents with pagination")
+async def get_all_documents(
+    page: int = 1,
+    limit: int = 10,
+    doc_manager: DocumentService = Depends(get_doc_manager_instance)
 ):
-    """Deletes a document and all its associated chunks from the vector store."""
-    logger.info(f"API request to delete document with ID: {document_id}")
-    if not doc_manager.delete_document(document_id):
-        logger.error(f"API delete failed for document ID: {document_id}")
-        raise HTTPException(status_code=404, detail="Document not found or could not be deleted.")
-    return StandardResponse(message="Document deleted successfully.")
+    """
+    Retrieves metadata for all documents in the vector store with pagination.
+    """
+    if page < 1:
+        page = 1
+    if limit < 1 or limit > 100:
+        limit = 10
+        
+    offset = (page - 1) * limit
+    documents, total_count = doc_manager.get_all_documents_paginated(offset, limit)
+    
+    total_pages = (total_count + limit - 1) // limit
+    
+    return {
+        "documents": documents,
+        "pagination": {
+            "current_page": page,
+            "total_pages": total_pages,
+            "total_items": total_count,
+            "items_per_page": limit,
+            "has_next": page < total_pages,
+            "has_previous": page > 1
+        }
+    }
 
-@router.patch("/{document_id}/metadata", response_model=StandardResponse)
-def update_document_metadata_by_id(
+@documents_router.delete("/{document_id}", summary="Delete a document")
+async def delete_document(
     document_id: str,
-    metadata_update: DocumentMetadataUpdate,
-    doc_manager: DocumentManager = Depends(get_doc_manager_instance)
+    doc_manager: DocumentService = Depends(get_doc_manager_instance)
 ):
-    """Updates the metadata for a specific document."""
-    logger.info(f"API request to update metadata for document ID: {document_id}")
-    updates = metadata_update.dict(exclude_unset=True)
-    if not doc_manager.update_document_metadata(document_id, updates):
-        logger.error(f"API metadata update failed for document ID: {document_id}")
-        raise HTTPException(status_code=404, detail="Document not found or metadata could not be updated.")
-    return StandardResponse(message="Document metadata updated successfully.") 
+    """
+    Deletes a document from the vector store by its ID.
+    """
+    if doc_manager.delete_document(document_id):
+        return {"message": f"Document {document_id} deleted successfully."}
+    else:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found.")
+
+@documents_router.patch("/{document_id}", summary="Update document metadata")
+async def update_document_metadata(
+    document_id: str,
+    update_data: DocumentMetadataUpdate,
+    doc_manager: DocumentService = Depends(get_doc_manager_instance)
+):
+    """
+    Updates the metadata for a specific document.
+    """
+    if doc_manager.update_document_metadata(document_id, update_data.dict(exclude_unset=True)):
+        return {"message": f"Metadata for document {document_id} updated successfully."}
+    else:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found.") 

@@ -3,14 +3,16 @@ import logging
 from typing import List, Dict, Any, Optional
 import uuid
 import psycopg
+from core.common.schemas import ChatMessage, ChatSession
 
 from vector.pgvector_manager import PGVectorManager
 
 logger = logging.getLogger("aviator_chatbot")
 
-class HistoryManager:
+class HistoryService:
     """
-    Manages chat history stored in a persistent database.
+    Manages chat history operations, including loading, saving, and creating new sessions.
+    This class is designed to be stateless; it operates on a directory structure.
     """
     
     @staticmethod
@@ -24,7 +26,7 @@ class HistoryManager:
         Creates the chat_history and chat_messages tables if they don't exist.
         """
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error("Failed to get database connection.")
                 return
@@ -63,7 +65,7 @@ class HistoryManager:
         """Creates a new chat record and returns the chat_id."""
         chat_id = uuid.uuid4()
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error("Failed to get database connection for creating chat.")
                 return None
@@ -86,7 +88,7 @@ class HistoryManager:
     def get_history_list(username: str) -> List[Dict[str, Any]]:
         """Retrieves a list of all chat histories for a given user, sorted by last update."""
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error("Failed to get database connection for fetching history.")
                 return []
@@ -115,7 +117,7 @@ class HistoryManager:
     def add_message_to_history(chat_id: str, role: str, content: str):
         """Adds a single message to the chat_messages table."""
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error(f"Failed to get DB connection for adding message to chat {chat_id}.")
                 return
@@ -138,10 +140,10 @@ class HistoryManager:
                 conn.rollback()
 
     @staticmethod
-    def get_messages_for_chat(chat_id: str) -> List[Dict[str, Any]]:
-        """Retrieves all messages for a specific chat_id, ordered by creation time."""
+    def get_messages_for_chat(chat_id: str, username: str = None) -> List[Dict[str, Any]]:
+        """Retrieves all messages for a specific chat_id, ordered by creation time, with feedback information."""
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error(f"Failed to get DB connection for fetching messages for chat {chat_id}.")
                 return []
@@ -154,6 +156,34 @@ class HistoryManager:
                 messages = cur.fetchall()
 
             history = [{"role": row[0], "content": row[1]} for row in messages]
+            
+            # Initialize all messages with feedback field set to None
+            for message in history:
+                message['feedback'] = None
+            
+            # Add feedback information if username is provided
+            if username:
+                try:
+                    from core.services.feedback_service import get_feedback_service
+                    feedback_service = get_feedback_service()
+                    feedback_map = feedback_service.get_chat_feedback(username, chat_id)
+                    
+                    logger.debug(f"Retrieved feedback map: {feedback_map}")
+                    
+                    # Add feedback to assistant messages (message_index is for assistant responses)
+                    assistant_message_index = 0
+                    for i, message in enumerate(history):
+                        if message['role'] == 'assistant':
+                            feedback = feedback_map.get(assistant_message_index)
+                            if feedback:
+                                history[i]['feedback'] = feedback
+                                logger.debug(f"Set feedback for assistant message {assistant_message_index}: {feedback}")
+                            assistant_message_index += 1
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to get feedback for chat {chat_id}: {e}")
+                    # Feedback field is already set to None for all messages above
+
             logger.debug(f"Retrieved {len(history)} messages for chat_id '{chat_id}'.")
             return history
         except Exception as e:
@@ -166,7 +196,7 @@ class HistoryManager:
     def update_chat_title(chat_id: str, new_title: str) -> bool:
         """Updates the title of a specific chat and its updated_at timestamp."""
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error("Failed to get database connection for updating title.")
                 return False
@@ -189,7 +219,7 @@ class HistoryManager:
     def get_chat_title(chat_id: str) -> Optional[str]:
         """Retrieves the title of a specific chat."""
         try:
-            conn = HistoryManager._get_db_connection()
+            conn = HistoryService._get_db_connection()
             if not conn:
                 logger.error("Failed to get database connection for fetching title.")
                 return None

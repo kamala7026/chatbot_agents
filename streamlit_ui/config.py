@@ -1,6 +1,4 @@
-# streamlit_ui/config.py
-"""
-Central configuration for the Streamlit UI application.
-"""
+# config.py
  
-API_BASE_URL = "http://127.0.0.1:8000" 
+# Base URL for the FastAPI backend
+API_BASE_URL = "http://127.0.0.1:8001" 

@@ -5,7 +5,7 @@ import time
 import re
 import os
 import sys
-from config import API_BASE_URL
+from .config import API_BASE_URL
 from utils.logger_config import logger # Import the configured logger
 
 # --- Configuration ---
@@ -15,9 +15,12 @@ CHAT_API = f"{API_BASE_URL}/chat"
 # --- API Helper Functions ---
 def get_history_list(username: str):
     """Fetches the list of chat histories for a user."""
+    if not username or not isinstance(username, str):
+        logger.warning("get_history_list called with invalid username.")
+        return []
     logger.info(f"Fetching chat history list for user: {username}")
     try:
-        response = requests.get(f"{HISTORY_API}/{username}")
+        response = requests.get(f"{HISTORY_API}/user_history/{username}")
         response.raise_for_status()
         history = response.json()
         logger.debug(f"Successfully fetched {len(history)} history items for {username}.")
@@ -41,34 +44,42 @@ def get_messages(username: str, chat_id: str):
         st.error(f"Error fetching messages: {e}")
         return []
 
-def create_new_chat(username: str):
-    """Asks the API to create a new chat thread."""
-    logger.info(f"Requesting new chat for user: {username}")
-    try:
-        response = requests.post(f"{HISTORY_API}/new/{username}")
-        response.raise_for_status()
-        chat_id = response.json().get("chat_id")
-        logger.info(f"Successfully created new chat with chat_id: {chat_id} for user: {username}")
-        return chat_id
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API Error creating new chat for {username}: {e}", exc_info=True)
-        st.error(f"Error creating new chat: {e}")
-        return None
-
-def send_chat_message(username: str, chat_id: str, user_input: str):
+def send_chat_message(username: str, chat_id: str | None, user_input: str):
     """Sends a message to the chat API and returns the full response."""
     logger.info(f"Sending message for user: {username}, chat_id: {chat_id}, input: '{user_input[:50]}...'")
     try:
-        payload = {"username": username, "chat_id": chat_id, "user_input": user_input}
-        response = requests.post(CHAT_API, json=payload)
+        payload = {"username": username, "user_input": user_input}
+        if chat_id and chat_id != "new_chat":
+            payload["chat_id"] = chat_id
+            
+        response = requests.post(f"{CHAT_API}/", json=payload)
         response.raise_for_status()
-        api_response = response.json().get("response")
-        logger.debug(f"Got API response for chat_id {chat_id}: '{api_response[:50]}...'")
+        
+        api_response_data = response.json()
+        
+        # If this was a new chat, update the active_chat_id from the response
+        if not chat_id or chat_id == "new_chat":
+            new_chat_id = api_response_data.get("chat_id")
+            if new_chat_id:
+                st.session_state.active_chat_id = new_chat_id
+                st.session_state.needs_history_refresh = True # Flag for refresh
+                logger.info(f"New chat created. New Chat ID: {new_chat_id}. Flagging for history refresh.")
+
+        api_response = api_response_data.get("response")
+        logger.debug(f"Got API response for chat_id {st.session_state.active_chat_id}: '{api_response[:50]}...'")
         return api_response
     except requests.exceptions.RequestException as e:
         logger.error(f"API Error sending message for {chat_id}: {e}", exc_info=True)
         st.error(f"Error sending message: {e}")
-        return "Sorry, an error occurred while communicating with the server."
+        return None
+
+def handle_new_chat_response(full_response, message_index):
+    """Handles the response for a new chat, updating messages and triggering a refresh."""
+    # This function will be called after the response is streamed.
+    # It finalizes the message and then triggers a rerun, which will then handle the history refresh.
+    st.session_state.messages[message_index] = {"role": "assistant", "content": full_response}
+    st.session_state.needs_history_refresh = True
+    # No rerun here; the caller will handle it.
 
 # --- UI Rendering ---
 def render_history_panel(username: str, container):
@@ -87,10 +98,11 @@ def render_history_panel(username: str, container):
 
             st.divider()
 
+            # Only fetch history if it's not already in the session state.
             if "history_list" not in st.session_state:
                 st.session_state.history_list = get_history_list(username)
 
-            history_list = st.session_state.history_list
+            history_list = st.session_state.get("history_list", []) # Use .get for safety
             
             with st.container(height=400):
                 if not history_list:
@@ -100,9 +112,14 @@ def render_history_panel(username: str, container):
                         timestamp = history_item.get('timestamp', '').split('T')[0]
                         title = history_item.get('title', 'Chat')
                         button_label = f"📜 {title} ({timestamp})"
-                        if st.button(button_label, key=history_item['id'], use_container_width=False):
-                            logger.info(f"User '{username}' selected chat from history. ID: {history_item['id']}")
-                            st.session_state.active_chat_id = history_item['id']
+                        # Ensure the key is a string and unique
+                        history_id = str(history_item.get('id', ''))
+                        if not history_id:
+                            continue
+                        
+                        if st.button(button_label, key=history_id, use_container_width=False):
+                            logger.info(f"User '{username}' selected chat from history. ID: {history_id}")
+                            st.session_state.active_chat_id = history_id
                             st.session_state.messages = get_messages(username, st.session_state.active_chat_id)
                             st.rerun()
 
@@ -120,10 +137,9 @@ def render_chat_ui():
 
     # After a response is streamed, a flag is set. On the next run, refresh history if needed.
     if st.session_state.get("needs_history_refresh"):
-        if "history_list" in st.session_state:
-            del st.session_state.history_list
-        del st.session_state.needs_history_refresh
-        logger.info("History list invalidated for refresh.")
+        st.session_state.history_list = get_history_list(username) # Refresh the list
+        st.session_state.pop("needs_history_refresh", None) # Clear the flag
+        logger.info("History list refreshed.")
         st.rerun()
 
     # Hide Streamlit's default UI elements
@@ -182,6 +198,13 @@ def render_chat_ui():
                         user_prompt = st.session_state.messages[i-1]["content"]
                         full_response = send_chat_message(username, st.session_state.active_chat_id, user_prompt)
 
+                        if full_response is None:
+                            # Error is already handled in send_chat_message, just stop the placeholder
+                            placeholder.empty()
+                            st.session_state.messages.pop() # Remove placeholder
+                            st.rerun()
+                            return
+                        
                         def response_generator(response_str: str):
                             chunks = re.split(r'(\s+)', response_str)
                             for chunk in chunks:
@@ -193,12 +216,10 @@ def render_chat_ui():
                         # Update the state with the final response
                         st.session_state.messages[i] = {"role": "assistant", "content": streamed_response}
                         
-                        # Set flag to refresh history on the next run if needed
-                        if st.session_state.get("just_created_chat"):
-                            st.session_state.needs_history_refresh = True
-                            del st.session_state.just_created_chat
+                        # The history refresh is now triggered at the top of the script run,
+                        # so we no longer need the 'just_created_chat' flag here.
                         
-                        st.rerun() # Rerun to finalize the display and potentially trigger history refresh
+                        st.rerun() # Rerun to finalize the display
                     else:
                         st.markdown(message["content"])
                         if message["role"] == "assistant":
@@ -216,16 +237,6 @@ def render_chat_ui():
         if prompt := st.chat_input("Ask me something..."):
             logger.info(f"User '{username}' submitted a new prompt.")
 
-            if st.session_state.get("active_chat_id") == "new_chat":
-                logger.info("This is the first message in a new chat. Creating session on the backend.")
-                new_chat_id = create_new_chat(username)
-                if new_chat_id:
-                    st.session_state.active_chat_id = new_chat_id
-                    st.session_state.just_created_chat = True
-                else:
-                    st.error("Could not create a new chat session. Please try again.")
-                    st.stop()
-
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.session_state.messages.append({"role": "assistant", "content": LOADING_PLACEHOLDER})
             st.rerun()
@@ -234,6 +245,8 @@ def initialize_chat_session(username: str):
     """Initializes the chat session, loading the most recent chat or starting a new one."""
     logger.info(f"No active chat for '{username}'. Initializing chat session.")
     history_list = get_history_list(username)
+    st.session_state.history_list = history_list
+
     if history_list:
         # If there's history, load the most recent chat
         st.session_state.active_chat_id = history_list[0]['id']

@@ -5,11 +5,11 @@ import pandas as pd
 import time
 import os
 import sys
-from config import API_BASE_URL
+from .config import API_BASE_URL
 from utils.logger_config import logger # Import the configured logger
 
 # Import centralized configuration
-from core.config import CATEGORIES, STATUS_OPTIONS, ACCESS_OPTIONS
+from core.common.config import CATEGORIES, STATUS_OPTIONS, ACCESS_OPTIONS
 
 # --- Configuration ---
 DOCUMENTS_ENDPOINT = f"{API_BASE_URL}/documents"
@@ -38,7 +38,7 @@ def update_document_metadata(doc_id: str, updates: dict):
     logger.info(f"Requesting metadata update for doc_id '{doc_id}' with data: {updates}")
     try:
         # Corrected the endpoint to match the API definition
-        response = requests.patch(f"{DOCUMENTS_ENDPOINT}/{doc_id}/metadata", json=updates, headers=get_headers())
+        response = requests.patch(f"{DOCUMENTS_ENDPOINT}/{doc_id}", json=updates, headers=get_headers())
         response.raise_for_status()
         logger.info(f"Successfully updated metadata for doc_id '{doc_id}'.")
         return True

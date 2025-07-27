@@ -6,7 +6,7 @@ import logging
 # Import refactored modules
 from utils.logger_config import setup_logging, logger
 from core.chatbot import RAGChatbot
-from core.document_management import DocumentManager # Ensure this import is correct
+from core.services.document_service import DocumentService # Ensure this import is correct
 from ui.sidebar_ui import render_sidebar
 from ui.chat_ui import render_chat_ui
 from ui.document_upload_ui import render_document_upload_ui
@@ -45,8 +45,8 @@ def main():
         logger.info("Default user type set to 'non-support'.")
     if 'doc_manager' not in st.session_state:
         # THIS IS IMPORTANT: Ensure doc_manager is created here once per session
-        st.session_state.doc_manager = DocumentManager()
-        logger.info("Initialized DocumentManager in session state.")
+        st.session_state.doc_manager = DocumentService()
+        logger.info("Initialized DocumentService in session state.")
     if 'pending_delete_doc_id' not in st.session_state:
         st.session_state.pending_delete_doc_id = None
     if 'processing_message' not in st.session_state:

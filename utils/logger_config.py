@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 # Import the configurable log directory
-from core.config import LOG_DIR
+from core.common.config import LOG_DIR
 
 # This global flag ensures the setup process runs only once.
 _logging_configured = False
@@ -22,34 +22,43 @@ def setup_logging():
     logger = logging.getLogger("aviator_chatbot")
     logger.setLevel(logging.DEBUG)
 
-    # Prevent adding handlers multiple times by clearing any existing ones.
+    # Uvicorn will add its own handlers. We clear them to ensure our file handler is primary.
     if logger.hasHandlers():
         logger.handlers.clear()
 
     # Use the configured log directory, ensuring it's a Path object for robustness
     log_dir = Path(LOG_DIR)
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = log_dir / "app.log"
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = log_dir / "app.log"
 
-    # Create file handler - Uvicorn will handle the console stream
-    f_handler = logging.FileHandler(log_file)
-    f_handler.setLevel(logging.DEBUG)
+        # Create file handler
+        f_handler = logging.FileHandler(log_file, mode='a')
+        f_handler.setLevel(logging.DEBUG)
 
-    # Create formatter and add to handler
-    f_format = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    f_handler.setFormatter(f_format)
+        # Create formatter and add to handler
+        f_format = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        f_handler.setFormatter(f_format)
 
-    # Add file handler to the logger
-    logger.addHandler(f_handler)
+        # Add file handler to the root logger
+        logger.addHandler(f_handler)
 
-    # Mark as configured
-    _logging_configured = True
-    
-    # Log to confirm setup
-    logging.getLogger("aviator_chatbot").info("File logging configured successfully.")
+        # Mark as configured
+        _logging_configured = True
+        
+        # This initial log should confirm the handler is working.
+        logger.info(f"Root logger configured. Logging to file: {log_file}")
+
+    except PermissionError:
+        # Fallback to console logging if file permissions fail.
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter('%(asctime)s - LOGGING_ERROR: %(message)s'))
+        logger.addHandler(console_handler)
+        logger.error(f"Permission denied to write to log directory '{log_dir}'. Please check permissions.")
+        _logging_configured = True # Mark as configured to avoid loops
 
 
-# Get the logger instance. The setup will be called from the app's entry point.
+# Get a named logger for the application. It will inherit from the root logger.
 logger = logging.getLogger("aviator_chatbot")

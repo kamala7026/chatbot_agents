@@ -22,11 +22,13 @@ class PromptManager:
             - rag_retriever: Use this tool to search uploaded documents for specific information.
             - default_response: Use this tool for greetings or casual conversation (e.g., "hi", "hello", "thank you"). When this tool is used, its output is often the final answer.
             - create_support_ticket: Use this tool when the user explicitly asks to 'create a ticket', 'raise an issue', 'open a support request', or book a ticket or book an issue or want to have a ticket or issue or similar. This tool will manage the collection of required details.
+            - get_lifecycles_data: Use this tool when the user asks for "lifecycle details", "File details", "Transaction details", or "File search". This tool will handle the entire process of gathering the required parameters (like Node ID, BUIDs, and File ID) from the user and then calling an API to fetch the data. 
+              Don't give same answer that already given from history you should procced with new request to this tool by asking for fresh inputs and call this tool get answer. 
 
             IMPORTANT RULES FOR RESPONDING:
             - You must follow the ReAct format strictly. Each response must contain either:
               A) A Thought, then an Action and Action Input, IF you need to use a tool.
-              B) A Thought, then a Final Answer, IF you have a complete answer to the user's request WITHOUT needing further tool use.
+              B) A final, human-readable answer if you are done.
             - YOU MUST NOT output both Action/Action Input AND Final Answer in the name response. Choose one path.
             - ONLY use Final Answer when your response is fully complete and directly answers the user's last input.
             - If the user's input is a simple greeting (like "hi", "hello"), a thank you, or other casual conversational remark, **you must use the `default_response` tool**. The `Observation` from this tool will typically be your `Final Answer` in the *next turn*.
@@ -140,3 +142,25 @@ Impacted time: e.g., 'yesterday', 'today 2 PM', 'last Monday'.
             }}
         }}
         """) 
+
+    @staticmethod
+    def get_adservice_extraction_prompt() -> str:
+        """Returns the system prompt for the AdserviceApiTool's extraction chain."""
+        return (
+            "You are an expert at extracting specific details from a conversation for an API call. "
+            "Your task is to analyze the conversation history and extract the 'Node ID', 'BUIDs', and 'File ID'.\n\n"
+            "IMPORTANT RULE: The conversation may contain previous, completed API requests. A completed request is indicated by a JSON response from the assistant (a message starting with '{{').\n"
+            "You MUST IGNORE any parameters that were provided by the user BEFORE the last JSON response in the history. Only consider user messages that came AFTER the last JSON response.\n"
+            "If no JSON response is in the history, you may consider the entire conversation.\n\n"
+            "Do not make up values. If a required value is not present in the relevant part of the conversation, leave its field as null. Final response to user should be in Markdown format."
+        )
+
+    @staticmethod
+    def get_chat_title_prompt() -> str:
+        """Returns the prompt for generating a chat title."""
+        return (
+            "Summarize the following user's first message into a short, descriptive title of no more than 5 words. "
+            "For example, 'Tell me about the Q2 earnings report' could be 'Q2 Earnings Report'.\n\n"
+            "USER MESSAGE: '{message}'\n\n"
+            "TITLE:"
+        ) 

@@ -46,3 +46,7 @@ CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'chroma_d
 CATEGORIES = ["TGO", "LENS", "AO", "AIC"]
 STATUS_OPTIONS = ["Active", "Inactive"]
 ACCESS_OPTIONS = ["Internal", "External"]
+
+# --- Adservice API Configuration ---
+# The base URL for the external Lifecycles API endpoint.
+ADSERVICE_API_URL = "http://qtotcdc.otxlab.net:8080/adservices/v1/search/lifecycles"
